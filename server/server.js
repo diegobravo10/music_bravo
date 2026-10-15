@@ -74,7 +74,25 @@ app.get("/api/radio/:id", async (req, res) => {
   const { id } = req.params;
   if (!validId(id)) return res.sendStatus(400);
   const url = `https://www.youtube.com/watch?v=${id}&list=RD${id}`;
-  res.json(parseList(await run([url, "--flat-playlist", "--dump-json", "--playlist-end", "25"])));
+  const [items, blocked] = await Promise.all([
+    run([url, "--flat-playlist", "--dump-json", "--playlist-end", "30"]).then(parseList),
+    db.blocked.findMany({ select: { videoId: true } }),
+  ]);
+  const skip = new Set(blocked.map((b) => b.videoId));
+  res.json(items.filter((t) => !skip.has(t.videoId)));
+});
+
+// Canciones que no quieres volver a escuchar (la radio las salta)
+app.get("/api/blocked", async (_, res) => res.json(await db.blocked.findMany({ orderBy: { at: "desc" } })));
+app.post("/api/blocked", async (req, res) => {
+  const { videoId, title } = req.body;
+  if (!validId(videoId)) return res.sendStatus(400);
+  await db.blocked.upsert({ where: { videoId }, create: { videoId, title: String(title) }, update: {} });
+  res.sendStatus(204);
+});
+app.delete("/api/blocked/:id", async (req, res) => {
+  await db.blocked.deleteMany({ where: { videoId: req.params.id } });
+  res.sendStatus(204);
 });
 
 // Cache de URLs directas de googlevideo (caducan en ~6h)

@@ -39,3 +39,9 @@ model Play {
   count    Int      @default(1)
   playedAt DateTime @default(now())
 }
+
+model Blocked {
+  videoId String   @id
+  title   String
+  at      DateTime @default(now())
+}

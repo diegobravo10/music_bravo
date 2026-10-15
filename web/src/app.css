@@ -45,7 +45,7 @@ input { font: inherit; color: inherit; background: none; border: 0; outline: 0; 
 .hint { color: var(--muted); padding: 6px 10px; font-size: 13px; }
 
 /* Main */
-.main { grid-area: main; overflow-y: auto; padding: 20px 40px 60px; }
+.main { grid-area: main; overflow-y: auto; overflow-x: hidden; padding: 20px 40px 60px; }
 .searchbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; max-width: 520px; padding: 0 16px; height: 44px; border-radius: 999px; background: var(--raise); color: var(--muted); border: 1px solid transparent; box-shadow: 0 0 0 12px var(--bg); transition: border-color 0.15s; }
 .searchbar:focus-within { border-color: var(--line); color: var(--text); }
 .searchbar input { flex: 1; color: var(--text); }
@@ -85,7 +85,17 @@ input { font: inherit; color: inherit; background: none; border: 0; outline: 0; 
 /* Rows */
 .rows { list-style: none; }
 .row { position: relative; display: grid; grid-template-columns: 32px 56px minmax(0, 1fr) auto auto 40px; align-items: center; gap: 14px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.row { z-index: 1; background: var(--bg); touch-action: pan-y; transition: transform 0.2s, background 0.15s; }
+.row.open { z-index: 5; }
 .row:hover { background: var(--panel); }
+.sw { position: relative; }
+.sw::before, .sw::after { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 18px; border-radius: 6px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.15s; }
+.sw::before { content: "Agregar a la cola"; background: #3a2418; color: var(--accent); }
+.sw::after { content: "Quitar"; justify-content: flex-end; background: #3a1d18; color: #ff8a65; }
+.sw[data-sw~="r"]::before, .sw[data-sw~="l"]::after { opacity: 1; }
+.sw[data-sw~="go"]::before { background: var(--accent); color: #140a04; }
+.sw[data-sw~="go"]::after { background: #e5533b; color: #140a04; }
+.tag { font: 600 10px var(--sans); font-style: normal; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 1px 5px; margin-right: 8px; vertical-align: 1px; }
 .row .n { display: grid; place-items: center; font: 13px var(--mono); color: var(--muted); }
 .row .n svg, .row:hover .n b, .row:hover .n .eq { display: none; }
 .row:hover .n svg { display: block; color: var(--text); }
@@ -101,8 +111,12 @@ input { font: inherit; color: inherit; background: none; border: 0; outline: 0; 
 .row:hover .act .ghost, .act .ghost:focus-visible { opacity: 1; }
 .menu { position: absolute; right: 0; top: 36px; z-index: 10; min-width: 200px; max-height: 260px; overflow-y: auto; padding: 6px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; cursor: default; }
 .menu p { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 10px; }
-.menu button { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; }
 .menu button:hover { background: var(--line); }
+.menu.up { top: auto; bottom: 36px; }
+.menu .danger { color: #ff8a65; }
+.menu p { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; }
+.chip svg { vertical-align: -2px; margin-left: 4px; opacity: 0.6; }
 .menu span { display: block; padding: 8px 10px; color: var(--muted); }
 
 .eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
@@ -145,7 +159,6 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 .lit { color: var(--accent) !important; }
 .logout { display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 8px 10px; border-radius: 8px; color: var(--muted); }
 .logout:hover { color: var(--text); }
-.menu .radio-btn { display: flex; align-items: center; gap: 8px; color: var(--accent); }
 
 /* Login */
 .login { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse 60% 50% at 50% 100%, #ff6b2c14, transparent); }

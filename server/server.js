@@ -2,6 +2,7 @@ import express from "express";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { Readable } from "node:stream";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 
 const app = express();
@@ -23,26 +24,57 @@ setInterval(update, 24 * 3600e3);
 
 app.use(express.json());
 
-// Basic auth opcional (APP_PASSWORD) para no dejarlo abierto
+// Login con cookie (APP_PASSWORD). La sesión es un HMAC de la contraseña: si la cambias, se cierran todas
 const PASS = process.env.APP_PASSWORD;
-if (PASS)
-  app.use((req, res, next) => {
-    const b64 = (req.headers.authorization || "").split(" ")[1] || "";
-    if (Buffer.from(b64, "base64").toString().split(":").slice(1).join(":") === PASS) return next();
-    res.set("WWW-Authenticate", 'Basic realm="musica"').sendStatus(401);
+const TOKEN = PASS && createHmac("sha256", PASS).update("musica-session").digest("hex");
+const same = (a, b) => {
+  const x = Buffer.from(String(a ?? "")), y = Buffer.from(String(b ?? ""));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+const getCookie = (req, name) =>
+  (req.headers.cookie || "").split(/;\s*/).find((c) => c.startsWith(name + "="))?.slice(name.length + 1);
+const setSession = (req, res, value, maxAge) =>
+  res.setHeader(
+    "Set-Cookie",
+    `sid=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}` +
+      (req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "")
+  );
+
+app.post("/api/login", async (req, res) => {
+  if (!PASS) return res.sendStatus(204);
+  if (!same(req.body.password, PASS)) {
+    await new Promise((r) => setTimeout(r, 1000)); // frena fuerza bruta
+    return res.status(401).json({ error: "Contraseña incorrecta" });
+  }
+  setSession(req, res, TOKEN, 365 * 86400);
+  res.sendStatus(204);
+});
+app.post("/api/logout", (req, res) => {
+  setSession(req, res, "", 0);
+  res.sendStatus(204);
+});
+app.use("/api", (req, res, next) => (!PASS || same(getCookie(req, "sid"), TOKEN) ? next() : res.sendStatus(401)));
+app.get("/api/me", (_, res) => res.sendStatus(204));
+
+const parseList = (out) =>
+  out.trim().split("\n").filter(Boolean).map((l) => {
+    const v = JSON.parse(l);
+    return { videoId: v.id, title: v.title, channel: v.channel ?? v.uploader, duration: v.duration ?? null };
   });
 
 app.get("/api/search", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json([]);
   db.search.upsert({ where: { q }, create: { q }, update: { q } }).catch(() => {});
-  const out = await run([`ytsearch20:${q}`, "--flat-playlist", "--dump-json"]);
-  res.json(
-    out.trim().split("\n").filter(Boolean).map((l) => {
-      const v = JSON.parse(l);
-      return { videoId: v.id, title: v.title, channel: v.channel ?? v.uploader, duration: v.duration ?? null };
-    })
-  );
+  res.json(parseList(await run([`ytsearch20:${q}`, "--flat-playlist", "--dump-json"])));
+});
+
+// Radio: el "Mix" automático de YouTube para esa canción (RD + id)
+app.get("/api/radio/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!validId(id)) return res.sendStatus(400);
+  const url = `https://www.youtube.com/watch?v=${id}&list=RD${id}`;
+  res.json(parseList(await run([url, "--flat-playlist", "--dump-json", "--playlist-end", "25"])));
 });
 
 // Cache de URLs directas de googlevideo (caducan en ~6h)

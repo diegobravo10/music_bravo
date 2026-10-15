@@ -5,7 +5,24 @@ const api = (path, opts = {}) =>
     ...opts,
     headers: { "Content-Type": "application/json" },
     body: opts.body && JSON.stringify(opts.body),
-  }).then((r) => (!r.ok ? Promise.reject(r) : r.status === 204 ? null : r.json()));
+  }).then((r) => {
+    if (r.status === 401 && path !== "/login") dispatchEvent(new Event("unauth"));
+    return !r.ok ? Promise.reject(r) : r.status === 204 ? null : r.json();
+  });
+const store = {
+  get: (k, d) => {
+    try {
+      return JSON.parse(localStorage.getItem(k)) ?? d;
+    } catch {
+      return d;
+    }
+  },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch {}
+  },
+};
 const thumb = (id, hq) => `https://i.ytimg.com/vi/${id}/${hq ? "hqdefault" : "mqdefault"}.jpg`;
 const fmt = (s) => (!s || !isFinite(s) ? "–:––" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
 const pick = ({ videoId, title, channel, duration }) => ({ videoId, title, channel, duration });
@@ -24,6 +41,9 @@ const I = {
   vol: "M4 9v6h4l5 4V5L8 9zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z",
   search: "M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z",
   home: "M12 4 4 10.5V20h5.5v-5.5h5V20H20v-9.5z",
+  radio: "M12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.8-4.2L13 11h7V4l-2.4 2.4A8 8 0 0 0 12 4z",
+  queue: "M4 6h13v2H4zm0 5h13v2H4zm0 5h8v2H4zm11 0v5l4.5-2.5z",
+  out: "M10 4H5v16h5v-2H7V6h3zm5.6 3.4L14.2 8.8l2.2 2.2H9v2h7.4l-2.2 2.2 1.4 1.4L20.2 12z",
 };
 const Icon = ({ d, size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -39,6 +59,64 @@ const Eq = () => (
 );
 
 export default function App() {
+  const [authed, setAuthed] = useState(null);
+  useEffect(() => {
+    api("/me").then(() => setAuthed(true), () => setAuthed(false));
+    const off = () => setAuthed(false);
+    addEventListener("unauth", off);
+    return () => removeEventListener("unauth", off);
+  }, []);
+  const logout = () => api("/logout", { method: "POST" }).finally(() => setAuthed(false));
+
+  if (authed === null) return null;
+  return authed ? <Music onLogout={logout} /> : <Login onOk={() => setAuthed(true)} />;
+}
+
+function Login({ onOk }) {
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr("");
+    try {
+      await api("/login", { method: "POST", body: { password: pw } });
+      onOk();
+    } catch {
+      setErr("Esa no es. Intenta otra vez.");
+      setPw("");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="login">
+      <form onSubmit={submit}>
+        <div className="brand">
+          música<span>.</span>
+        </div>
+        <p className="c">Tu música, en tu servidor.</p>
+        <input type="text" name="username" autoComplete="username" value="musica" readOnly hidden />
+        <input
+          className="field"
+          type="password"
+          autoComplete="current-password"
+          autoFocus
+          placeholder="Contraseña"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+        />
+        {err && <p className="err">{err}</p>}
+        <button className="primary" disabled={busy || !pw}>
+          {busy ? <span className="spin" /> : "Entrar"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function Music({ onLogout }) {
   const [q, setQ] = useState("");
   const [view, setView] = useState({ type: "home" });
   const [list, setList] = useState([]);
@@ -52,6 +130,7 @@ export default function App() {
   const [menu, setMenu] = useState(null);
   const [newPl, setNewPl] = useState(null);
   const [toast, setToast] = useState("");
+  const [autoplay, setAutoplay] = useState(() => store.get("autoplay", true));
   const audio = useRef();
   const toastT = useRef();
   const current = queue[idx];
@@ -104,6 +183,41 @@ export default function App() {
       navigator.mediaSession.setActionHandler("previoustrack", prev);
     }
   }, [current]);
+
+  // Autoplay: al llegar a la última canción de la cola, se le agrega su Mix (sin repetir)
+  useEffect(() => {
+    if (!autoplay || !current || idx < queue.length - 1) return;
+    let stale = false;
+    api(`/radio/${current.videoId}`)
+      .then((items) => {
+        if (stale) return;
+        setQueue((qu) => {
+          const seen = new Set(qu.map((t) => t.videoId));
+          return [...qu, ...items.filter((t) => !seen.has(t.videoId))];
+        });
+      })
+      .catch(() => {});
+    return () => (stale = true);
+  }, [current, autoplay]);
+
+  const toggleAutoplay = () => {
+    store.set("autoplay", !autoplay);
+    setAutoplay(!autoplay);
+    flash(autoplay ? "Autoplay apagado" : "Autoplay encendido");
+  };
+  const startRadio = async (t) => {
+    setMenu(null);
+    flash("Armando la radio…");
+    try {
+      const items = await api(`/radio/${t.videoId}`);
+      // si ya suena, se mantiene el mismo objeto para no reiniciarla
+      const first = current?.videoId === t.videoId ? current : pick(t);
+      setQueue([first, ...items.filter((x) => x.videoId !== t.videoId)]);
+      setIdx(0);
+    } catch {
+      flash("No se pudo armar la radio");
+    }
+  };
 
   // Espacio = play/pausa
   useEffect(() => {
@@ -173,15 +287,15 @@ export default function App() {
     loadHist();
   };
 
-  const rows = (items, { inPlaylist, counts } = {}) => (
+  const rows = (items, { inPlaylist, counts, onPlay, start = 0 } = {}) => (
     <ol className="rows">
       {items.map((t, i) => {
         const on = current?.videoId === t.videoId;
         const key = `${t.id ?? t.videoId}-${i}`;
         return (
-          <li key={key} className={on ? "row on" : "row"} onClick={() => playFrom(items, i)}>
+          <li key={key} className={on ? "row on" : "row"} onClick={() => (onPlay ? onPlay(i) : playFrom(items, i))}>
             <span className="n">
-              {on && st.playing ? <Eq /> : <b>{i + 1}</b>}
+              {on && st.playing ? <Eq /> : <b>{start + i + 1}</b>}
               <Icon d={on && st.playing ? I.pause : I.play} size={16} />
             </span>
             <img src={thumb(t.videoId)} alt="" loading="lazy" />
@@ -192,17 +306,21 @@ export default function App() {
             {counts && <span className="plays">{t.count} {t.count === 1 ? "vez" : "veces"}</span>}
             <span className="d">{fmt(t.duration)}</span>
             <div className="act" onClick={(e) => e.stopPropagation()}>
-              {inPlaylist ? (
+              {inPlaylist && (
                 <button className="ghost" title="Quitar de la playlist" onClick={() => removeTrack(t)}>
                   <Icon d={I.x} size={18} />
                 </button>
-              ) : (
+              )}
+              {!inPlaylist && (
                 <>
-                  <button className="ghost" title="Añadir a playlist" onClick={() => setMenu(menu === key ? null : key)}>
+                  <button className="ghost" title="Más opciones" onClick={() => setMenu(menu === key ? null : key)}>
                     <Icon d={I.plus} size={18} />
                   </button>
                   {menu === key && (
                     <div className="menu">
+                      <button className="radio-btn" onClick={() => startRadio(t)}>
+                        <Icon d={I.radio} size={16} /> Iniciar radio
+                      </button>
                       <p>Añadir a…</p>
                       {playlists.length ? (
                         playlists.map((pl) => (
@@ -280,6 +398,9 @@ export default function App() {
           ))}
           {!playlists.length && newPl === null && <p className="hint">Aún no tienes ninguna.</p>}
         </div>
+        <button className="logout" onClick={onLogout} title="Cerrar sesión">
+          <Icon d={I.out} size={18} /> <span>Salir</span>
+        </button>
       </aside>
 
       <main className="main">
@@ -358,7 +479,40 @@ export default function App() {
               <p className="kicker">Resultados</p>
               <h1>{view.q}</h1>
             </header>
-            {loading ? skeleton : list.length ? rows(list) : <p className="empty">Nada por aquí. Prueba con otra búsqueda.</p>}
+            {loading ? (
+              skeleton
+            ) : list.length ? (
+              rows(list, { onPlay: (i) => playFrom(autoplay ? [list[i]] : list, autoplay ? 0 : i) })
+            ) : (
+              <p className="empty">Nada por aquí. Prueba con otra búsqueda.</p>
+            )}
+          </section>
+        )}
+
+        {view.type === "queue" && (
+          <section>
+            <header className="hero small">
+              <p className="kicker">{autoplay ? "Cola · autoplay encendido" : "Cola"}</p>
+              <h1>A continuación</h1>
+            </header>
+            {current && (
+              <div className="block">
+                <h3>Sonando</h3>
+                {rows([current], { onPlay: toggle, start: idx })}
+              </div>
+            )}
+            {queue.length > idx + 1 ? (
+              <div className="block">
+                <h3>Después</h3>
+                {rows(queue.slice(idx + 1), { onPlay: (i) => setIdx(idx + 1 + i), start: idx + 1 })}
+              </div>
+            ) : (
+              <p className="empty">
+                {autoplay
+                  ? "Cuando suene algo, aquí aparece lo que viene."
+                  : "La cola termina aquí. Enciende el autoplay para que siga sonando música parecida."}
+              </p>
+            )}
           </section>
         )}
 
@@ -436,6 +590,20 @@ export default function App() {
           </div>
         </div>
         <div className="vol">
+          <button
+            className={autoplay ? "ghost lit" : "ghost"}
+            title={autoplay ? "Autoplay encendido" : "Autoplay apagado"}
+            onClick={toggleAutoplay}
+          >
+            <Icon d={I.radio} size={18} />
+          </button>
+          <button
+            className={view.type === "queue" ? "ghost lit" : "ghost"}
+            title="Cola"
+            onClick={() => setView(view.type === "queue" ? { type: "home" } : { type: "queue" })}
+          >
+            <Icon d={I.queue} size={18} />
+          </button>
           <Icon d={I.vol} size={18} />
           <input
             type="range"

@@ -43,6 +43,7 @@ const I = {
   home: "M12 4 4 10.5V20h5.5v-5.5h5V20H20v-9.5z",
   radio: "M12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.8-4.2L13 11h7V4l-2.4 2.4A8 8 0 0 0 12 4z",
   queue: "M4 6h13v2H4zm0 5h13v2H4zm0 5h8v2H4zm11 0v5l4.5-2.5z",
+  down: "M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z",
   more: "M6 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
   ban: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 0 1 5.6 11.2L7.8 6.4A7 7 0 0 1 12 5zm-5.6 2.8 9.8 9.8A7 7 0 0 1 6.4 7.8z",
   out: "M10 4H5v16h5v-2H7V6h3zm5.6 3.4L14.2 8.8l2.2 2.2H9v2h7.4l-2.2 2.2 1.4 1.4L20.2 12z",
@@ -139,6 +140,9 @@ function Music({ onLogout }) {
   const [newPl, setNewPl] = useState(null);
   const [toast, setToast] = useState("");
   const [blocked, setBlocked] = useState([]);
+  const [full, setFull] = useState(false);
+  const [source, setSource] = useState("");
+  const fullT = useRef();
   const [autoplay, setAutoplay] = useState(() => store.get("autoplay", true));
   const audio = useRef();
   const toastT = useRef();
@@ -160,28 +164,53 @@ function Music({ onLogout }) {
     loadHist();
     loadBlocked();
     const close = () => setMenu(null);
+    const pop = () => setFull(false);
     addEventListener("click", close);
-    return () => removeEventListener("click", close);
+    addEventListener("popstate", pop);
+    return () => {
+      removeEventListener("click", close);
+      removeEventListener("popstate", pop);
+    };
   }, []);
 
-  const next = () => setIdx((i) => (i + 1 < queue.length ? i + 1 : i));
+  // Con la pantalla apagada el navegador congela la página si deja de sonar, así que el cambio de
+  // canción se hace en el mismo evento (sin esperar a React) y la siguiente se prepara de antemano
+  const qRef = useRef();
+  qRef.current = { queue, idx };
+  const load = (t) => {
+    const a = audio.current;
+    if (a.dataset.vid === t.videoId && !a.ended) return;
+    a.dataset.vid = t.videoId;
+    a.src = `/api/stream/${t.videoId}`;
+    a.play().catch(() => {});
+    upd({ time: 0, dur: 0, buffering: true });
+  };
+  const jump = (i) => {
+    const t = qRef.current.queue[i];
+    if (!t) return;
+    load(t);
+    setIdx(i);
+  };
+  const next = () => jump(qRef.current.idx + 1);
   const prev = () => {
     if (audio.current.currentTime > 3) audio.current.currentTime = 0;
-    else setIdx((i) => Math.max(0, i - 1));
+    else jump(qRef.current.idx - 1);
   };
+  const upcoming = queue[idx + 1]?.videoId;
+  useEffect(() => {
+    if (upcoming) api(`/prepare/${upcoming}`).catch(() => {});
+  }, [upcoming]);
   const toggle = () => current && (audio.current.paused ? audio.current.play() : audio.current.pause());
   const playFrom = (items, i) => {
     if (current?.videoId === items[i].videoId) return toggle();
     setQueue(items);
     setIdx(i);
+    setSource(sourceLabel());
   };
 
   useEffect(() => {
     if (!current) return;
-    const a = audio.current;
-    upd({ time: 0, dur: 0, buffering: true });
-    a.src = `/api/stream/${current.videoId}`;
-    a.play().catch(() => {});
+    load(current);
     document.title = `${current.title} · BravoSound`;
     api("/history", { method: "POST", body: pick(current) }).then(loadHist).catch(() => {});
     if ("mediaSession" in navigator) {
@@ -243,6 +272,26 @@ function Music({ onLogout }) {
     flash(`“${b.title}” puede volver a sonar`);
   };
 
+  const openFull = () => {
+    if (!current) return;
+    history.pushState({ full: true }, "");
+    setFull(true);
+  };
+  const closeFull = () => (history.state?.full ? history.back() : setFull(false));
+  const artTouch = {
+    onTouchStart: (e) => (fullT.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }),
+    onTouchEnd: (e) => {
+      const s = fullT.current;
+      if (!s) return;
+      const dx = e.changedTouches[0].clientX - s.x;
+      const dy = e.changedTouches[0].clientY - s.y;
+      if (dy > 100 && dy > Math.abs(dx)) closeFull();
+      else if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? next() : prev();
+    },
+  };
+  const sourceLabel = () =>
+    view.type === "playlist" ? view.pl.name : view.type === "search" ? `“${view.q}”` : view.type === "queue" ? "Tu cola" : "Inicio";
+
   const toggleAutoplay = () => {
     store.set("autoplay", !autoplay);
     setAutoplay(!autoplay);
@@ -257,6 +306,7 @@ function Music({ onLogout }) {
       const first = current?.videoId === t.videoId ? current : pick(t);
       setQueue([first, ...items.filter((x) => x.videoId !== t.videoId)]);
       setIdx(0);
+      setSource(`Radio de ${t.title}`);
     } catch {
       flash("No se pudo armar la radio");
     }
@@ -265,6 +315,7 @@ function Music({ onLogout }) {
   // Espacio = play/pausa
   useEffect(() => {
     const onKey = (e) => {
+      if (e.key === "Escape" && full) closeFull();
       if (e.code === "Space" && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) {
         e.preventDefault();
         toggle();
@@ -361,6 +412,40 @@ function Music({ onLogout }) {
     },
   });
 
+  const trackMenu = (t, { remove, inPlaylist, up } = {}) => (
+    <div className={up ? "menu up" : "menu"}>
+        <button onClick={() => addToQueue(t)}>
+          <Icon d={I.queue} size={16} /> Agregar a la cola
+        </button>
+        <button onClick={() => startRadio(t)}>
+          <Icon d={I.radio} size={16} /> Iniciar radio
+        </button>
+        {remove && (
+          <button onClick={() => (setMenu(null), remove())}>
+            <Icon d={I.x} size={16} /> Quitar de la cola
+          </button>
+        )}
+        {inPlaylist && (
+          <button onClick={() => (setMenu(null), removeTrack(t))}>
+            <Icon d={I.x} size={16} /> Quitar de esta playlist
+          </button>
+        )}
+        <button className="danger" onClick={() => block(t)}>
+          <Icon d={I.ban} size={16} /> No volver a poner
+        </button>
+        <p>Añadir a playlist</p>
+        {playlists.length ? (
+          playlists.map((pl) => (
+            <button key={pl.id} onClick={() => addTo(t, pl)}>
+              {pl.name}
+            </button>
+          ))
+        ) : (
+          <span>Primero crea una playlist</span>
+        )}
+      </div>
+  );
+
   const rows = (items, { inPlaylist, counts, onPlay, onRemove, start = 0 } = {}) => (
     <ol className="rows">
       {items.map((t, i) => {
@@ -400,45 +485,30 @@ function Music({ onLogout }) {
                 >
                   <Icon d={I.more} size={18} />
                 </button>
-                {open && (
-                  <div className={menu.up ? "menu up" : "menu"}>
-                    <button onClick={() => addToQueue(t)}>
-                      <Icon d={I.queue} size={16} /> Agregar a la cola
-                    </button>
-                    <button onClick={() => startRadio(t)}>
-                      <Icon d={I.radio} size={16} /> Iniciar radio
-                    </button>
-                    {remove && (
-                      <button onClick={() => (setMenu(null), remove())}>
-                        <Icon d={I.x} size={16} /> Quitar de la cola
-                      </button>
-                    )}
-                    {inPlaylist && (
-                      <button onClick={() => (setMenu(null), removeTrack(t))}>
-                        <Icon d={I.x} size={16} /> Quitar de esta playlist
-                      </button>
-                    )}
-                    <button className="danger" onClick={() => block(t)}>
-                      <Icon d={I.ban} size={16} /> No volver a poner
-                    </button>
-                    <p>Añadir a playlist</p>
-                    {playlists.length ? (
-                      playlists.map((pl) => (
-                        <button key={pl.id} onClick={() => addTo(t, pl)}>
-                          {pl.name}
-                        </button>
-                      ))
-                    ) : (
-                      <span>Primero crea una playlist</span>
-                    )}
-                  </div>
-                )}
+                {open && trackMenu(t, { remove, inPlaylist, up: menu.up })}
               </div>
             </div>
           </li>
         );
       })}
     </ol>
+  );
+
+  const bar = (
+    <div className="bar">
+      <span>{fmt(st.time)}</span>
+      <input
+        type="range"
+        min={0}
+        max={dur || 1}
+        step="0.1"
+        value={st.time}
+        disabled={!current}
+        style={{ "--p": `${dur ? (st.time / dur) * 100 : 0}%` }}
+        onChange={(e) => (audio.current.currentTime = +e.target.value)}
+      />
+      <span>{fmt(dur)}</span>
+    </div>
   );
 
   const skeleton = (
@@ -662,7 +732,7 @@ function Music({ onLogout }) {
       </main>
 
       <footer className="player">
-        <div className="np">
+        <div className="np" onClick={openFull} title={current ? "Ver reproducción" : undefined}>
           {current ? (
             <>
               <img src={thumb(current.videoId)} alt="" />
@@ -687,20 +757,7 @@ function Music({ onLogout }) {
               <Icon d={I.next} />
             </button>
           </div>
-          <div className="bar">
-            <span>{fmt(st.time)}</span>
-            <input
-              type="range"
-              min={0}
-              max={dur || 1}
-              step="0.1"
-              value={st.time}
-              disabled={!current}
-              style={{ "--p": `${dur ? (st.time / dur) * 100 : 0}%` }}
-              onChange={(e) => (audio.current.currentTime = +e.target.value)}
-            />
-            <span>{fmt(dur)}</span>
-          </div>
+          {bar}
         </div>
         <div className="vol">
           <button
@@ -743,6 +800,68 @@ function Music({ onLogout }) {
           onError={() => current && (upd({ buffering: false }), flash("No se pudo reproducir esta canción"))}
         />
       </footer>
+
+      {full && current && (
+        <div className="full">
+          <div className="full-bg" style={{ backgroundImage: `url(${thumb(current.videoId, true)})` }} />
+          <header className="full-h">
+            <button className="ghost" onClick={closeFull} title="Cerrar">
+              <Icon d={I.down} size={28} />
+            </button>
+            <div>
+              <p className="kicker">Sonando desde</p>
+              <b>{source || "BravoSound"}</b>
+            </div>
+            <div className="full-more" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="ghost"
+                title="Opciones"
+                onClick={() => setMenu(menu?.key === "full" ? null : { key: "full" })}
+              >
+                <Icon d={I.more} size={24} />
+              </button>
+              {menu?.key === "full" && trackMenu(current)}
+            </div>
+          </header>
+          <div className="full-art" {...artTouch}>
+            <img
+              key={current.videoId}
+              src={`https://i.ytimg.com/vi/${current.videoId}/maxresdefault.jpg`}
+              onError={(e) => (e.currentTarget.src = thumb(current.videoId, true))}
+              alt=""
+            />
+          </div>
+          <div className="full-meta">
+            <div className="t">{current.title}</div>
+            <div className="c">{current.channel}</div>
+          </div>
+          {bar}
+          <div className="full-ctl">
+            <button className={autoplay ? "ghost lit" : "ghost"} onClick={toggleAutoplay} title="Autoplay">
+              <Icon d={I.radio} size={22} />
+            </button>
+            <button className="ghost big" onClick={prev} title="Anterior">
+              <Icon d={I.prev} size={32} />
+            </button>
+            <button className="pp big" onClick={toggle} title="Play/Pausa">
+              {st.buffering ? <span className="spin" /> : <Icon d={st.playing ? I.pause : I.play} size={32} />}
+            </button>
+            <button className="ghost big" onClick={next} title="Siguiente">
+              <Icon d={I.next} size={32} />
+            </button>
+            <button
+              className="ghost"
+              title="Cola"
+              onClick={() => {
+                closeFull();
+                setView({ type: "queue" });
+              }}
+            >
+              <Icon d={I.queue} size={22} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

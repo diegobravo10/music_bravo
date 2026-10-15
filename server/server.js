@@ -111,6 +111,13 @@ function streamUrl(id, fresh) {
   return entry.url;
 }
 
+// Deja lista la URL de la siguiente canción para que arranque sin espera
+app.get("/api/prepare/:id", async (req, res) => {
+  if (!validId(req.params.id)) return res.sendStatus(400);
+  await streamUrl(req.params.id);
+  res.sendStatus(204);
+});
+
 // Proxy con soporte de Range => permite adelantar/retroceder
 app.get("/api/stream/:id", async (req, res) => {
   const { id } = req.params;

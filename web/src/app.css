@@ -33,8 +33,9 @@ input { font: inherit; color: inherit; background: none; border: 0; outline: 0; 
 
 /* Sidebar */
 .side { grid-area: side; display: flex; flex-direction: column; gap: 4px; padding: 24px 14px; border-right: 1px solid var(--line); overflow-y: auto; }
-.brand { font: italic 34px/1 var(--serif); padding: 0 10px 22px; letter-spacing: -0.01em; }
-.brand span { color: var(--accent); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 24px; font: italic 28px/1 var(--serif); letter-spacing: -0.01em; white-space: nowrap; }
+.brand img { width: 32px; height: 32px; flex: none; }
+.brand b { font: 600 0.62em var(--sans); font-style: normal; letter-spacing: 0.02em; margin-left: 3px; vertical-align: 0.1em; color: var(--accent); }
 .side nav button, .pls button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-align: left; transition: color 0.15s, background 0.15s; }
 .pls button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .side nav button:hover, .pls button:hover { color: var(--text); }
@@ -163,7 +164,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 /* Login */
 .login { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(ellipse 60% 50% at 50% 100%, #ff6b2c14, transparent); }
 .login form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 14px; }
-.login .brand { font-size: 64px; padding: 0; }
+.login .brand { font-size: 48px; padding: 0; gap: 14px; }
+.login .brand img { width: 48px; height: 48px; }
 .login .c { margin: -8px 0 18px; font-size: 14px; }
 .field { width: 100%; height: 48px; padding: 0 16px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); font-size: 16px; transition: border-color 0.15s; }
 .field:focus { border-color: var(--accent); }
@@ -175,7 +177,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
 @media (max-width: 760px) {
   .app { grid-template: "side" auto "main" 1fr "player" auto / 1fr; }
   .side { flex-direction: row; align-items: center; gap: 6px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
-  .brand { font-size: 24px; padding: 0 8px 0 0; }
+  .brand { font-size: 22px; padding: 0 8px 0 0; gap: 8px; }
+  .brand img { width: 26px; height: 26px; }
   .side nav button, .pls button { width: auto; white-space: nowrap; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); }
   .pls { display: flex; gap: 6px; }
   .side-h { padding: 0; order: 9; }
@@ -207,6 +210,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bo
   .vol > svg, .vol input { display: none; }
   .row .n { display: none; }
   .row { grid-template-columns: 48px minmax(0, 1fr) 40px; }
-  .login .brand { font-size: 52px; }
+  .login .brand { font-size: 40px; }
+  .login .brand img { width: 40px; height: 40px; }
   .toast { bottom: 140px; }
 }

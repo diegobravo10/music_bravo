@@ -52,6 +52,14 @@ const Icon = ({ d, size = 20 }) => (
     <path d={d} />
   </svg>
 );
+const Brand = () => (
+  <div className="brand">
+    <img src="/logo.svg" alt="" />
+    <span>
+      Bravo<b>Sound</b>
+    </span>
+  </div>
+);
 const Eq = () => (
   <span className="eq">
     <i />
@@ -95,9 +103,7 @@ function Login({ onOk }) {
   return (
     <div className="login">
       <form onSubmit={submit}>
-        <div className="brand">
-          música<span>.</span>
-        </div>
+        <Brand />
         <p className="c">Tu música, en tu servidor.</p>
         <input type="text" name="username" autoComplete="username" value="musica" readOnly hidden />
         <input
@@ -176,7 +182,7 @@ function Music({ onLogout }) {
     upd({ time: 0, dur: 0, buffering: true });
     a.src = `/api/stream/${current.videoId}`;
     a.play().catch(() => {});
-    document.title = `${current.title} · música`;
+    document.title = `${current.title} · BravoSound`;
     api("/history", { method: "POST", body: pick(current) }).then(loadHist).catch(() => {});
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -453,9 +459,7 @@ function Music({ onLogout }) {
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand">
-          música<span>.</span>
-        </div>
+        <Brand />
         <nav>
           <button className={view.type === "home" ? "on" : ""} onClick={() => setView({ type: "home" })}>
             <Icon d={I.home} size={18} /> Inicio

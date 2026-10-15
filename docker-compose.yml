@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: musica
+      POSTGRES_PASSWORD: musica
+      POSTGRES_DB: musica
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U musica
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://musica:musica@db:5432/musica
+      APP_PASSWORD: ${APP_PASSWORD:-}
+    ports:
+      - "${APP_PORT:-3010}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

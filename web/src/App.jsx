@@ -147,7 +147,23 @@ function Music({ onLogout }) {
   const audio = useRef();
   const toastT = useRef();
   const current = queue[idx];
-  const dur = isFinite(st.dur) && st.dur ? st.dur : current?.duration || 0;
+  // El m4a de YouTube a veces trae mal la duración en la cabecera (sale el doble),
+  // así que manda la que da yt-dlp y la del <audio> queda solo de respaldo
+  const dur = current?.duration || (isFinite(st.dur) ? st.dur : 0);
+  const onTime = (e) => {
+    const t = e.target.currentTime;
+    upd({ time: t });
+    if (current?.duration && t > current.duration + 1) return next(); // por si no llega "ended"
+    if (dur && "mediaSession" in navigator)
+      try {
+        navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(t, dur), playbackRate: 1 });
+      } catch {}
+  };
+  const onWaiting = () => {
+    // se quedó esperando datos justo al final: la canción ya terminó
+    if (current?.duration && audio.current.currentTime >= current.duration - 1.5) return next();
+    upd({ buffering: true });
+  };
   const upd = (o) => setSt((s) => ({ ...s, ...o }));
 
   const flash = (m) => {
@@ -790,11 +806,11 @@ function Music({ onLogout }) {
         </div>
         <audio
           ref={audio}
-          onTimeUpdate={(e) => upd({ time: e.target.currentTime })}
+          onTimeUpdate={onTime}
           onDurationChange={(e) => upd({ dur: e.target.duration })}
           onPlay={() => upd({ playing: true })}
           onPause={() => upd({ playing: false })}
-          onWaiting={() => upd({ buffering: true })}
+          onWaiting={onWaiting}
           onPlaying={() => upd({ buffering: false })}
           onEnded={next}
           onError={() => current && (upd({ buffering: false }), flash("No se pudo reproducir esta canción"))}
